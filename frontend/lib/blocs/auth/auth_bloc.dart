@@ -1,73 +1,117 @@
-import 'dart:async';
-import 'package:bloc/bloc.dart';
-import 'package:equatable/equatable.dart';
-import 'package:flutter/foundation.dart';
-
-import 'package:ceriv_app/models/user.dart';
+// lib/blocs/auth/auth_bloc.dart
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:ceriv_app/blocs/auth/auth_event.dart';
+import 'package:ceriv_app/blocs/auth/auth_state.dart';
 import 'package:ceriv_app/services/auth_service.dart';
-import 'package:ceriv_app/services/service_locator.dart';
-
-part 'auth_event.dart';
-part 'auth_state.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
-  final AuthService _authService = getIt<AuthService>();
+  final AuthService _authService;
 
-  AuthBloc() : super(AuthInitial()) {
-    on<CheckAuthStatusEvent>(_onCheckAuthStatus);
-    on<LoginEvent>(_onLogin);
+  AuthBloc({required AuthService authService})
+      : _authService = authService,
+        super(AuthInitial()) {
+    on<CheckAuthEvent>(_onCheckAuth);
+    on<SignInWithEmailEvent>(_onSignInWithEmail);
+    on<SignInWithCPFEvent>(_onSignInWithCPF);
     on<RegisterEvent>(_onRegister);
-    on<LogoutEvent>(_onLogout);
-    on<ResetPasswordEvent>(_onResetPassword);
+    on<SignOutEvent>(_onSignOut);
+    on<ForgotPasswordEvent>(_onForgotPassword);
+    on<ForgotPasswordByCPFEvent>(_onForgotPasswordByCPF);
+    on<UpdateUserEvent>(_onUpdateUser);
   }
 
-  Future<void> _onCheckAuthStatus(
-    CheckAuthStatusEvent event,
+  Future<void> _onCheckAuth(
+    CheckAuthEvent event,
     Emitter<AuthState> emit,
   ) async {
+    emit(AuthLoading());
     try {
-      emit(AuthLoading());
-
-      // Verificar se já está autenticado
-      final isAuthenticated = _authService.isAuthenticated;
-      final user = _authService.currentUser;
-
-      if (isAuthenticated && user != null) {
-        emit(AuthAuthenticated(user: user));
+      final user = await _authService.getCurrentUserData();
+      if (user != null) {
+        emit(Authenticated(user));
       } else {
-        emit(AuthUnauthenticated());
+        emit(Unauthenticated());
       }
     } catch (e) {
-      debugPrint('Erro ao verificar status de autenticação: $e');
-      emit(AuthError(message: 'Erro ao verificar status de autenticação'));
+      emit(Unauthenticated());
     }
   }
 
-  Future<void> _onLogin(
-    LoginEvent event,
+  Future<void> _onSignInWithEmail(
+    SignInWithEmailEvent event,
     Emitter<AuthState> emit,
   ) async {
+    emit(AuthLoading());
     try {
-      emit(AuthLoading());
-
-      // Realizar login
-      final response = await _authService.loginWithEmailAndPassword(
+      await _authService.signInWithEmailAndPassword(
         event.email,
         event.password,
       );
-
-      if (response.isSuccess && response.data != null) {
-        // Login bem-sucedido
-        emit(AuthAuthenticated(user: response.data!));
+      final user = await _authService.getCurrentUserData();
+      if (user != null) {
+        emit(Authenticated(user));
       } else {
-        // Erro de login
-        emit(AuthError(
-          message: response.error?.message ?? 'Falha na autenticação',
-        ));
+        emit(const AuthError('Falha ao obter dados do usuário.'));
       }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'Usuário não encontrado.';
+          break;
+        case 'wrong-password':
+          message = 'Senha incorreta.';
+          break;
+        case 'invalid-email':
+          message = 'E-mail inválido.';
+          break;
+        case 'user-disabled':
+          message = 'Usuário desativado.';
+          break;
+        default:
+          message = 'Erro de autenticação: ${e.message}';
+      }
+      emit(AuthError(message));
     } catch (e) {
-      debugPrint('Erro durante login: $e');
-      emit(AuthError(message: 'Erro durante autenticação: $e'));
+      emit(AuthError(e.toString()));
+    }
+  }
+
+  Future<void> _onSignInWithCPF(
+    SignInWithCPFEvent event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+    try {
+      await _authService.signInWithCPF(
+        event.cpf,
+        event.password,
+      );
+      final user = await _authService.getCurrentUserData();
+      if (user != null) {
+        emit(Authenticated(user));
+      } else {
+        emit(const AuthError('Falha ao obter dados do usuário.'));
+      }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'Usuário não encontrado com este CPF.';
+          break;
+        case 'wrong-password':
+          message = 'Senha incorreta.';
+          break;
+        case 'user-disabled':
+          message = 'Usuário desativado.';
+          break;
+        default:
+          message = 'Erro de autenticação: ${e.message}';
+      }
+      emit(AuthError(message));
+    } catch (e) {
+      emit(AuthError(e.toString()));
     }
   }
 
@@ -75,75 +119,118 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     RegisterEvent event,
     Emitter<AuthState> emit,
   ) async {
+    emit(AuthLoading());
     try {
-      emit(AuthLoading());
-
-      // Realizar cadastro
-      final response = await _authService.registerWithEmailAndPassword(
-        event.email,
+      await _authService.registerWithEmailAndPassword(
+        event.userData.email,
         event.password,
-        event.name,
+        event.userData,
       );
-
-      if (response.isSuccess && response.data != null) {
-        // Cadastro bem-sucedido
-        emit(AuthAuthenticated(user: response.data!));
-      } else if (response.statusCode == 200 && response.message != null) {
-        // Cadastro criado, mas precisa de confirmação (e.g., email)
-        emit(AuthRegistrationSuccess(message: response.message!));
+      final user = await _authService.getCurrentUserData();
+      if (user != null) {
+        emit(Authenticated(user));
       } else {
-        // Erro no cadastro
-        emit(AuthError(
-          message: response.error?.message ?? 'Falha no cadastro',
-        ));
+        emit(const AuthError('Falha ao obter dados do usuário.'));
       }
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'email-already-in-use':
+          message = 'Este e-mail já está em uso.';
+          break;
+        case 'invalid-email':
+          message = 'E-mail inválido.';
+          break;
+        case 'weak-password':
+          message = 'Senha muito fraca.';
+          break;
+        default:
+          message = 'Erro de registro: ${e.message}';
+      }
+      emit(AuthError(message));
     } catch (e) {
-      debugPrint('Erro durante cadastro: $e');
-      emit(AuthError(message: 'Erro durante cadastro: $e'));
+      emit(AuthError(e.toString()));
     }
   }
 
-  Future<void> _onLogout(
-    LogoutEvent event,
+  Future<void> _onSignOut(
+    SignOutEvent event,
     Emitter<AuthState> emit,
   ) async {
+    emit(AuthLoading());
     try {
-      emit(AuthLoading());
-
-      // Realizar logout
-      await _authService.logout();
-
-      emit(AuthUnauthenticated());
+      await _authService.signOut();
+      emit(Unauthenticated());
     } catch (e) {
-      debugPrint('Erro durante logout: $e');
-      emit(AuthError(message: 'Erro durante logout: $e'));
+      emit(AuthError(e.toString()));
     }
   }
 
-  Future<void> _onResetPassword(
-    ResetPasswordEvent event,
+  Future<void> _onForgotPassword(
+    ForgotPasswordEvent event,
     Emitter<AuthState> emit,
   ) async {
+    emit(AuthLoading());
     try {
-      emit(AuthLoading());
+      await _authService.sendPasswordResetEmail(event.email);
+      emit(PasswordResetSent());
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'Usuário não encontrado com este e-mail.';
+          break;
+        case 'invalid-email':
+          message = 'E-mail inválido.';
+          break;
+        default:
+          message = 'Erro ao enviar e-mail de recuperação: ${e.message}';
+      }
+      emit(AuthError(message));
+    } catch (e) {
+      emit(AuthError(e.toString()));
+    }
+  }
 
-      // Solicitar reset de senha
-      final response = await _authService.resetPassword(event.email);
+  Future<void> _onForgotPasswordByCPF(
+    ForgotPasswordByCPFEvent event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+    try {
+      await _authService.sendPasswordResetEmailByCPF(event.cpf);
+      emit(PasswordResetSent());
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'Usuário não encontrado com este CPF.';
+          break;
+        default:
+          message = 'Erro ao enviar e-mail de recuperação: ${e.message}';
+      }
+      emit(AuthError(message));
+    } catch (e) {
+      emit(AuthError(e.toString()));
+    }
+  }
 
-      if (response.isSuccess) {
-        // Reset solicitado com sucesso
-        emit(AuthPasswordResetSent(
-          message: response.message ?? 'Instruções de recuperação enviadas para seu email',
-        ));
+  Future<void> _onUpdateUser(
+    UpdateUserEvent event,
+    Emitter<AuthState> emit,
+  ) async {
+    emit(AuthLoading());
+    try {
+      await _authService.updateUserData(event.userData);
+      final user = await _authService.getCurrentUserData();
+      if (user != null) {
+        emit(UserUpdated(user));
+        emit(Authenticated(user));
       } else {
-        // Erro ao solicitar reset
-        emit(AuthError(
-          message: response.error?.message ?? 'Falha ao solicitar recuperação de senha',
-        ));
+        emit(const AuthError('Falha ao obter dados atualizados do usuário.'));
       }
     } catch (e) {
-      debugPrint('Erro ao solicitar reset de senha: $e');
-      emit(AuthError(message: 'Erro ao solicitar recuperação de senha: $e'));
+      emit(AuthError(e.toString()));
     }
   }
 }

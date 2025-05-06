@@ -1,4 +1,6 @@
-part of 'auth_bloc.dart';
+// lib/blocs/auth/auth_event.dart
+import 'package:equatable/equatable.dart';
+import 'package:ceriv_app/models/user_model.dart';
 
 abstract class AuthEvent extends Equatable {
   const AuthEvent();
@@ -7,75 +9,63 @@ abstract class AuthEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-class CheckAuthStatusEvent extends AuthEvent {
-  const CheckAuthStatusEvent();
-}
+class CheckAuthEvent extends AuthEvent {}
 
-class LoginEvent extends AuthEvent {
+class SignInWithEmailEvent extends AuthEvent {
   final String email;
   final String password;
-  final bool rememberMe;
 
-  const LoginEvent({
-    required this.email,
-    required this.password,
-    this.rememberMe = false,
-  });
+  const SignInWithEmailEvent({required this.email, required this.password});
 
   @override
-  List<Object?> get props => [email, password, rememberMe];
+  List<Object> get props => [email, password];
+}
+
+class SignInWithCPFEvent extends AuthEvent {
+  final String cpf;
+  final String password;
+
+  const SignInWithCPFEvent({required this.cpf, required this.password});
+
+  @override
+  List<Object> get props => [cpf, password];
 }
 
 class RegisterEvent extends AuthEvent {
-  final String email;
+  final UserModel userData;
   final String password;
-  final String name;
 
-  const RegisterEvent({
-    required this.email,
-    required this.password,
-    required this.name,
-  });
+  const RegisterEvent({required this.userData, required this.password});
 
   @override
-  List<Object?> get props => [email, password, name];
+  List<Object> get props => [userData, password];
 }
 
-class LogoutEvent extends AuthEvent {
-  const LogoutEvent();
-}
+class SignOutEvent extends AuthEvent {}
 
-class ResetPasswordEvent extends AuthEvent {
+class ForgotPasswordEvent extends AuthEvent {
   final String email;
 
-  const ResetPasswordEvent({
-    required this.email,
-  });
+  const ForgotPasswordEvent({required this.email});
 
   @override
-  List<Object?> get props => [email];
+  List<Object> get props => [email];
 }
 
-class UpdateProfileEvent extends AuthEvent {
-  final User user;
+class ForgotPasswordByCPFEvent extends AuthEvent {
+  final String cpf;
 
-  const UpdateProfileEvent({
-    required this.user,
-  });
+  const ForgotPasswordByCPFEvent({required this.cpf});
 
   @override
-  List<Object?> get props => [user];
+  List<Object> get props => [cpf];
 }
 
-class UpdatePasswordEvent extends AuthEvent {
-  final String currentPassword;
-  final String newPassword;
+class UpdateUserEvent extends AuthEvent {
+  final UserModel userData;
 
-  const UpdatePasswordEvent({
-    required this.currentPassword,
-    required this.newPassword,
-  });
+  const UpdateUserEvent({required this.userData});
 
   @override
-  List<Object?> get props => [currentPassword, newPassword];
+  List<Object> get props => [userData];
 }
