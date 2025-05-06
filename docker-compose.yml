@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ceriv_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ceriv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ceriv_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ceriv_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ceriv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: ceriv_backend
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ceriv}:${POSTGRES_PASSWORD:-ceriv_password}@db:5432/${POSTGRES_DB:-ceriv_db}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://localhost:19006
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head && 
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # Serviço para Socket.IO (Chat em tempo real)
+  socketio:
+    build: ./backend
+    container_name: ceriv_socketio
+    depends_on:
+      - db
+      - backend
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ceriv}:${POSTGRES_PASSWORD:-ceriv_password}@db:5432/${POSTGRES_DB:-ceriv_db}
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    command: python -m app.services.chat_server
+
+  # Serviço para tarefas agendadas (notificações, gamificação, etc.)
+  scheduler:
+    build: ./backend
+    container_name: ceriv_scheduler
+    depends_on:
+      - db
+      - backend
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ceriv}:${POSTGRES_PASSWORD:-ceriv_password}@db:5432/${POSTGRES_DB:-ceriv_db}
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    command: tail -f /dev/null  # Mantém o container rodando sem executar script
+
+volumes:
+  postgres_data:
